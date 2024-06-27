@@ -72,10 +72,15 @@ class Chat:
     ) -> Optional[str]:
         if source == "local":
             download_path = os.getcwd()
-            if not check_all_assets(Path(download_path), self.sha256_map, update=True) or force_redownload:
+            if (
+                not check_all_assets(Path(download_path), self.sha256_map, update=True)
+                or force_redownload
+            ):
                 with tempfile.TemporaryDirectory() as tmp:
                     download_all_assets(tmpdir=tmp)
-                if not check_all_assets(Path(download_path), self.sha256_map, update=False):
+                if not check_all_assets(
+                    Path(download_path), self.sha256_map, update=False
+                ):
                     self.logger.error(
                         "download to local path %s failed.", download_path
                     )
@@ -109,9 +114,7 @@ class Chat:
         elif source == "custom":
             self.logger.log(logging.INFO, f"try to load from local: {custom_path}")
             if not check_all_assets(Path(custom_path), self.sha256_map, update=False):
-                self.logger.error(
-                    "check models in custom path %s failed.", custom_path
-                )
+                self.logger.error("check models in custom path %s failed.", custom_path)
                 return None
             download_path = custom_path
 
@@ -161,7 +164,9 @@ class Chat:
                 lzma.compress(
                     arr.tobytes(),
                     format=lzma.FORMAT_RAW,
-                    filters=[{"id": lzma.FILTER_LZMA2, "preset": 9 | lzma.PRESET_EXTREME}],
+                    filters=[
+                        {"id": lzma.FILTER_LZMA2, "preset": 9 | lzma.PRESET_EXTREME}
+                    ],
                 ),
             )
             del arr, spk
@@ -172,7 +177,11 @@ class Chat:
             dim: int = self.gpt.gpt.layers[0].mlp.gate_proj.in_features
             out: torch.Tensor = self.pretrain_models["spk_stat"]
             std, mean = out.chunk(2)
-            spk = torch.randn(dim, device=std.device, dtype=torch.float16).mul_(std).add_(mean)
+            spk = (
+                torch.randn(dim, device=std.device, dtype=torch.float16)
+                .mul_(std)
+                .add_(mean)
+            )
             del out, std, mean
             return spk
 
@@ -328,8 +337,12 @@ class Chat:
             tokenizer.padding_side = "left"
             self.pretrain_models["tokenizer"] = tokenizer
             self.tokenizer_len = len(tokenizer)
-            self.tokenizer_spk_emb_ids: torch.Tensor = tokenizer.convert_tokens_to_ids("[spk_emb]")
-            self.tokenizer_break_0_ids: torch.Tensor = tokenizer.convert_tokens_to_ids("[break_0]")
+            self.tokenizer_spk_emb_ids: torch.Tensor = tokenizer.convert_tokens_to_ids(
+                "[spk_emb]"
+            )
+            self.tokenizer_break_0_ids: torch.Tensor = tokenizer.convert_tokens_to_ids(
+                "[break_0]"
+            )
             self.tokenizer_eos_token: torch.Tensor = torch.tensor(
                 tokenizer.convert_tokens_to_ids("[Ebreak]"), device=gpt.device_gpt
             ).unsqueeze_(0)
@@ -378,8 +391,7 @@ class Chat:
                 )
                 text_tokens = refined.ids
                 text_tokens = [
-                    i[i.less(self.tokenizer_break_0_ids)]
-                    for i in text_tokens
+                    i[i.less(self.tokenizer_break_0_ids)] for i in text_tokens
                 ]
                 text = self.pretrain_models["tokenizer"].batch_decode(text_tokens)
                 refined.destroy()
@@ -420,7 +432,9 @@ class Chat:
         del_all(x)
         return wavs
 
-    def _text_to_token(self, text: str, device="cpu") -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def _text_to_token(
+        self, text: str, device="cpu"
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
 
         gpt = self.gpt
         tokenizer = self.pretrain_models["tokenizer"]
@@ -446,16 +460,36 @@ class Chat:
         input_ids: torch.Tensor,
         text_len: int,
     ):
-        n = F.normalize(
-            torch.from_numpy(
-                np.frombuffer(lzma.decompress(
-                    b14.decode_from_string(spk_emb),
-                    format=lzma.FORMAT_RAW,
-                    filters=[{"id": lzma.FILTER_LZMA2, "preset": 9 | lzma.PRESET_EXTREME}],
-                ), dtype=np.float16).copy(),
-            ).unsqueeze(0).expand(text_len, -1), p=2.0, dim=1, eps=1e-12
-        ).to(self.gpt.device_gpt).unsqueeze_(1).expand(emb.shape)
-        cond = input_ids.narrow(-1, 0, 1).eq(self.tokenizer_spk_emb_ids).expand(emb.shape)
+        n = (
+            F.normalize(
+                torch.from_numpy(
+                    np.frombuffer(
+                        lzma.decompress(
+                            b14.decode_from_string(spk_emb),
+                            format=lzma.FORMAT_RAW,
+                            filters=[
+                                {
+                                    "id": lzma.FILTER_LZMA2,
+                                    "preset": 9 | lzma.PRESET_EXTREME,
+                                }
+                            ],
+                        ),
+                        dtype=np.float16,
+                    ).copy(),
+                )
+                .unsqueeze(0)
+                .expand(text_len, -1),
+                p=2.0,
+                dim=1,
+                eps=1e-12,
+            )
+            .to(self.gpt.device_gpt)
+            .unsqueeze_(1)
+            .expand(emb.shape)
+        )
+        cond = (
+            input_ids.narrow(-1, 0, 1).eq(self.tokenizer_spk_emb_ids).expand(emb.shape)
+        )
         torch.where(cond, n, emb, out=emb)
         del cond, n
 
@@ -479,9 +513,14 @@ class Chat:
             temperature = [params.temperature] * gpt.num_vq
         else:
             temperature = params.temperature
-        
+
         for i, t in enumerate(text):
-            text[i] = t.replace('[Stts]', '').replace('[spk_emb]', '').replace('[empty_spk]', '').strip()
+            text[i] = (
+                t.replace("[Stts]", "")
+                .replace("[spk_emb]", "")
+                .replace("[empty_spk]", "")
+                .strip()
+            )
             """
             see https://github.com/2noise/ChatTTS/issues/459
             """
@@ -559,20 +598,22 @@ class Chat:
         emb = gpt(input_ids, text_mask)
         del text_mask
 
-        result = next(gpt.generate(
-            emb,
-            input_ids,
-            temperature=torch.tensor([params.temperature], device=device),
-            eos_token=self.tokenizer_eos_token,
-            attention_mask=attention_mask,
-            max_new_token=params.max_new_token,
-            min_new_token=params.min_new_token,
-            logits_warpers=logits_warpers,
-            logits_processors=logits_processors,
-            infer_text=True,
-            stream=False,
-            context=self.context,
-        ))
+        result = next(
+            gpt.generate(
+                emb,
+                input_ids,
+                temperature=torch.tensor([params.temperature], device=device),
+                eos_token=self.tokenizer_eos_token,
+                attention_mask=attention_mask,
+                max_new_token=params.max_new_token,
+                min_new_token=params.min_new_token,
+                logits_warpers=logits_warpers,
+                logits_processors=logits_processors,
+                infer_text=True,
+                stream=False,
+                context=self.context,
+            )
+        )
 
         del emb, input_ids
         del_all(logits_warpers)
